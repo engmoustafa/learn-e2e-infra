@@ -33,7 +33,8 @@ export class LearnE2EInfraStack extends cdk.Stack {
       Codebuild.FilterGroup.inEventOf(
         Codebuild.EventAction.PUSH,
         Codebuild.EventAction.PULL_REQUEST_MERGED
-      ).andHeadRefIs(envVars.BUILD_BRANCH),
+      )//.andHeadRefIs(envVars.BUILD_BRANCH)
+      .andBranchIs(envVars.BUILD_BRANCH_NAME),
     ];
 
     const webRepo = Codebuild.Source.gitHub({

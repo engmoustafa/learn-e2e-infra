@@ -4,9 +4,11 @@ export const envVars = {
     WEBSITE_NAME: process.env.WEBSITE_NAME,
     BUCKET_NAME: process.env.BUCKET_NAME || 'temp-static-8784',
     REPO_OWNER: process.env.REPO_OWNER || 'engmoustafa',
-    WEB_REPO_NAME: process.env.REPO_NAME || 'tempHtmlStatic',
+    WEB_REPO_NAME: process.env.REPO_NAME || 'learn-e2e-web',
     // you can change this to the branch of your choice (currently main)
+    BUILD_BRANCH_NAME: process.env.BUILD_BRANCH_NAME || 'main',
     BUILD_BRANCH: process.env.BUILD_BRANCH || '^refs/heads/main$',
+
 };
 
 export function validateEnvVariables() {

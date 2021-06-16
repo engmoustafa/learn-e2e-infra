@@ -50,7 +50,7 @@ export class PublicS3Bucket extends Construct{
             // DESTROY, cdk destroy will attempt to delete the bucket, but will error if the bucket is not empty.
             removalPolicy: cdk.RemovalPolicy.DESTROY,// NOT recommended for production code
             serverAccessLogsBucket: loggingBucket,
-            serverAccessLogsPrefix: "logs"
+            serverAccessLogsPrefix: "logs/"
           }
         );
         /* uncomment this if you do not require cloudfront and comment everything related to cloudfront below */

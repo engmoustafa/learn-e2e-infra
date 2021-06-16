@@ -16,6 +16,7 @@ The `cdk.json` file tells the CDK Toolkit how to execute your app.
 
 npm install @aws-cdk/aws-codebuild
 npm install @aws-cdk/core @aws-cdk/aws-s3 @aws-cdk/aws-iam  
+npm install @aws-cdk/aws-route53 @aws-cdk/aws-certificatemanager
 
 
 # CodeBuild accessing Github

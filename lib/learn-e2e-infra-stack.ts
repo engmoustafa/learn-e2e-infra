@@ -7,26 +7,26 @@ import * as IAM from "@aws-cdk/aws-iam";
 
 import { envVars } from './config';
 import { CfnOutput } from '@aws-cdk/core';
+import { PublicS3Bucket } from './DeployPublicS3Bucket';
 
 
 export class LearnE2EInfraStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // S3 bucket for a static website
-    const bucket = new S3.Bucket(this, envVars.BUCKET_NAME, {
-      websiteIndexDocument: 'index.html',
-      websiteErrorDocument: 'index.html',
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    const bucket = new PublicS3Bucket(this, 'StaticSite', {
+      domainName: envVars.DOMAIN_NAME,//this.node.tryGetContext('domain'),
+      siteSubDomain:  envVars.SUB_DOMAIN_NAME,//this.node.tryGetContext('subdomain'),
+      enableCloudFrontDist: false,
+      enableRoute53: true,
+      enableSslCert: false,
+      sslCertArn: null as any,
+      creadeHostedZone: false,
+      enableLoggingAccess: true
     });
-    /* uncomment this if you do not require cloudfront and comment everything related to cloudfront below */
-    bucket.grantPublicAccess('*', 's3:GetObject');
-
-    new CfnOutput(this, 
-      "s3-bucket-info", {
-        description: 'created public Bucket',
-        value: bucket.bucketArn,
-      });
+    bucket
+    //S3.Bucket.fromBucketName
+    // S3 bucket for a static website
 
     // codebuild project setup
     const webhooks: Codebuild.FilterGroup[] = [
@@ -45,7 +45,7 @@ export class LearnE2EInfraStack extends cdk.Stack {
       reportBuildStatus: true,
     });
 
-    const project = new Codebuild.Project(
+    const projectBuild = new Codebuild.Project(
       this,
       `${envVars.WEBSITE_NAME}-build`,
       {
@@ -68,7 +68,7 @@ export class LearnE2EInfraStack extends cdk.Stack {
       }
     );
     // iam policy to push your build to S3
-    project.addToRolePolicy(
+    projectBuild.addToRolePolicy(
       new IAM.PolicyStatement({
         effect: IAM.Effect.ALLOW,
         resources: [bucket.bucketArn, `${bucket.bucketArn}/*`],

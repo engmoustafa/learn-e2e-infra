@@ -6,27 +6,35 @@ import route53 = require('@aws-cdk/aws-route53');
 import s3deploy = require('@aws-cdk/aws-s3-deployment');
 import acm = require('@aws-cdk/aws-certificatemanager');
 import targets = require('@aws-cdk/aws-route53-targets/lib');
-import { HostedZone, IHostedZone } from '@aws-cdk/aws-route53';
+import { ARecord, HostedZone, IHostedZone } from '@aws-cdk/aws-route53';
 import { Bucket } from '@aws-cdk/aws-s3';
+import { DnsValidatedCertificate } from '@aws-cdk/aws-certificatemanager';
+import { CloudFrontWebDistribution, OriginAccessIdentity } from '@aws-cdk/aws-cloudfront';
+import { BucketDeployment, CacheControl } from '@aws-cdk/aws-s3-deployment';
+import { Source } from '@aws-cdk/aws-codebuild';
  
 export interface StaticSiteProps {
     domainName: string;
-    siteSubDomain: string;
-    enableSslCert: boolean;
-    sslCertArn: string;
-    enableRoute53: boolean;
-    enableCloudFrontDist: boolean;
-    creadeHostedZone: boolean;
-    enableLoggingAccess: boolean;
+    siteSubDomain?: string;
+    enableSslCert?: boolean;
+    sslCertArn?: string;
+    enableRoute53?: boolean;
+    enableCloudFrontDist?: boolean;
+    creadeHostedZone?: boolean;
+    enableLoggingAccess?: boolean;
 }
+const defaultWebsiteIndexDocument: string = "index.html";
 
-export class PublicS3Bucket extends Construct{
-    private _bucket: Bucket;
-    private _loggingBucket: Bucket;
-    private _certificateArn: string;
-    private _zone: IHostedZone;
+export class DeployStaticWebsite extends Construct{
+    public readonly _bucket: Bucket;
+    public readonly _loggingBucket: Bucket;
+    public readonly _certificateArn: string;
+    public readonly _zone: IHostedZone;
+    public readonly _dnsRecord: ARecord;
 
+   
     constructor(parent: Construct, name: string, props: StaticSiteProps) {
+        
         super(parent, name);
 
         var siteDomain = [props.siteSubDomain,props.domainName].filter(Boolean).join(".");
@@ -41,8 +49,8 @@ export class PublicS3Bucket extends Construct{
         //super(scope, id, props);
         this._bucket = new S3.Bucket(this, 'SiteBucket', {
             bucketName: siteDomain,
-            websiteIndexDocument: 'index.html',
-            websiteErrorDocument: 'index.html',
+            websiteIndexDocument: defaultWebsiteIndexDocument,
+            websiteErrorDocument: defaultWebsiteIndexDocument,
             publicReadAccess: true,
             
             // The default removal policy is RETAIN, which means that cdk destroy will not attempt to delete
@@ -69,20 +77,18 @@ export class PublicS3Bucket extends Construct{
         }
         //Requires Zone to be available
         if( props.enableSslCert === true) {
-            this._certificateArn = new acm.DnsValidatedCertificate(this, 'SiteCertificate', {
-                domainName: siteDomain,
-                hostedZone: this._zone,
-                region: 'us-east-1', // Cloudfront only checks this region for certificates.
-            }).certificateArn;
+            const certificate = this.createCertificate(siteDomain, this._zone);
+            this._certificateArn = certificate.certificateArn;
             new cdk.CfnOutput(this, 'Certificate', { value: this._certificateArn });
-        } else {
-            this._certificateArn = props.sslCertArn;
-        }
+        } /* else {
+            this._certificateArn = props.sslCertArn!;
+        }*/
 
         var distribution = null
         //Requires _certificateArn
         if( props.enableCloudFrontDist === true) {
-            distribution = new cloudfront.CloudFrontWebDistribution(this, 'SiteDistribution', {
+            //distribution = this.createCloudFrontWebDistribution(this._bucket, this._certificateArn,siteDomain,)
+            distribution = new cloudfront.CloudFrontWebDistribution(this, 'CloudfrontDistribution', {
                 aliasConfiguration: {
                     acmCertRef: this._certificateArn,
                     names: [ siteDomain ],
@@ -91,30 +97,29 @@ export class PublicS3Bucket extends Construct{
                 },
                 originConfigs: [
                     {
-                        customOriginSource: {
-                            domainName: siteDomain,//siteBucket.bucketWebsiteDomainName,
-                            originProtocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
-                        },          
-                        behaviors : [ {isDefaultBehavior: true}],
+                        // customOriginSource: {
+                        //     domainName: siteDomain,//siteBucket.bucketWebsiteDomainName,
+                        //     originProtocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+                        // },    
+                        s3OriginSource: {
+                            s3BucketSource: this._bucket,
+                            //Optional(bucket is public): originAccessIdentity: this.createOriginAccessIdentity(this._bucket),
+                        },
+                              
+                        behaviors : [ {isDefaultBehavior: true, defaultTtl: cdk.Duration.days(60)}],
                     }
-                ]
+                    
+                ],
+                defaultRootObject: defaultWebsiteIndexDocument,
             });
             new cdk.CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
         }  
         //Requires Zone and Distribution to be dfined
         if( props.enableRoute53 === true) {
             if(distribution != null){
-                new route53.ARecord(this, 'SiteAliasRecord', {
-                    recordName: siteDomain,
-                    target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(distribution)),
-                    zone: this._zone
-                });
+                this._dnsRecord = this.createARecordForDistrubution(this._zone, siteDomain, distribution);
             } else {
-                new route53.ARecord(this, 'SiteAliasRecord', {
-                    recordName: siteDomain,
-                    target: route53.RecordTarget.fromAlias(new targets.BucketWebsiteTarget(this._bucket)),
-                    zone: this._zone
-                });
+                this._dnsRecord = this.createARecordForBucket(this._zone, siteDomain, this._bucket);
             }
         }    
         
@@ -128,11 +133,99 @@ export class PublicS3Bucket extends Construct{
         //   });    
 
     }
+    private createCertificate(domainName: string, hostedZone: IHostedZone) {
+        return new DnsValidatedCertificate(this, "SslCertificate", {
+          domainName: domainName,
+          hostedZone: hostedZone,
+          region: "us-east-1",
+        });
+    }
+    
+    private lookupHostedZone(domainName: string) {
+        const hostedZoneDomainName = domainName.replace(/.*?\.(.*)/, "$1");
+        return HostedZone.fromLookup(this, "HostedZone", {
+          domainName: hostedZoneDomainName,
+        });
+    }
+    
+    private createARecordForDistrubution(
+        zone: IHostedZone,
+        domainName: string,
+        distribution: CloudFrontWebDistribution
+      ) {
+        return new route53.ARecord(this, "DnsARecord", {
+          target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(distribution)),
+          recordName: domainName,
+          ttl: cdk.Duration.minutes(1),
+          zone,
+        });
+    }
 
-    public get bucketName() {
-        return this._bucket.bucketName;
+    private createARecordForBucket(
+        zone: IHostedZone,
+        domainName: string,
+        bucket: Bucket
+      ) {
+        return new route53.ARecord(this, "DnsARecord", {
+          target: route53.RecordTarget.fromAlias(new targets.BucketWebsiteTarget(bucket)),
+          recordName: domainName,
+          ttl: cdk.Duration.minutes(1),
+          zone,
+        });
     }
-    public get bucketArn(){
-        return this._bucket.bucketArn;
-    }
+
+    private createOriginAccessIdentity(destinationBucket: Bucket) {
+        const originAccessIdentity = new OriginAccessIdentity(this, "Oai", {
+          comment: `OAI for ${destinationBucket.bucketName}`,
+        });
+        destinationBucket.grantRead(originAccessIdentity.grantPrincipal);
+        return originAccessIdentity;
+      }
+    private createCloudFrontWebDistribution(
+        destinationBucket: Bucket,
+        //originAccessIdentity: OriginAccessIdentity,
+        certificatArn: string,
+        domainName: string,
+        websiteIndexDocument: string,
+        webACLId?: string
+      ) {
+        return new CloudFrontWebDistribution(this, "CloudfrontDistribution", {
+            aliasConfiguration: {
+                acmCertRef: certificatArn,
+                names: [domainName],
+            },
+            originConfigs: [
+                {
+                    s3OriginSource: {
+                        s3BucketSource: destinationBucket,
+                        //originAccessIdentity,
+                    },
+                    behaviors: [{ isDefaultBehavior: true, defaultTtl: cdk.Duration.days(60),}],
+                }
+            ],
+            //TODO:webACLId,
+            defaultRootObject: websiteIndexDocument,
+            errorConfigurations: [
+                {
+                    errorCode: 404,
+                    errorCachingMinTtl: 300,
+                    responseCode: 200,
+                    responsePagePath: `/${websiteIndexDocument}`,
+                },
+            ],
+        });
+      }
+
+    //Deploy static files to bucket:
+    // private createBucketDeployment(
+    //     websiteDistPath: string,
+    //     destinationBucket: Bucket
+    //   ) {
+    //     return new BucketDeployment(this, "BucketDeployment", {
+    //       sources: [Source.asset(websiteDistPath)],
+    //       destinationBucket,
+    //       cacheControl: [CacheControl.noCache()],
+    //     });
+    //   }
+    
 }

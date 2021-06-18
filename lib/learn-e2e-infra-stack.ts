@@ -7,24 +7,24 @@ import * as IAM from "@aws-cdk/aws-iam";
 
 import { envVars } from './config';
 import { CfnOutput } from '@aws-cdk/core';
-import { PublicS3Bucket } from './DeployPublicS3Bucket';
+import { DeployStaticWebsite } from './DeployPublicS3Bucket';
 
 
 export class LearnE2EInfraStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const bucket = new PublicS3Bucket(this, 'StaticSite', {
+    const staticWebsite = new DeployStaticWebsite(this, 'StaticSite', {
       domainName: envVars.DOMAIN_NAME,//this.node.tryGetContext('domain'),
       siteSubDomain:  envVars.SUB_DOMAIN_NAME,//this.node.tryGetContext('subdomain'),
-      enableCloudFrontDist: false,
+      enableCloudFrontDist: true,
       enableRoute53: true,
-      enableSslCert: false,
+      enableSslCert: true,
       sslCertArn: null as any,
       creadeHostedZone: false,
       enableLoggingAccess: true
     });
-    bucket
+    
     //S3.Bucket.fromBucketName
     // S3 bucket for a static website
 
@@ -56,7 +56,7 @@ export class LearnE2EInfraStack extends cdk.Stack {
           computeType: Codebuild.ComputeType.SMALL,
           environmentVariables: {
             S3_BUCKET: {
-              value: bucket.bucketName,
+              value: staticWebsite._bucket.bucketName,
             },
             // CLOUDFRONT_DIST_ID: {
             //   value: cloudfrontDist.distributionId,
@@ -71,7 +71,7 @@ export class LearnE2EInfraStack extends cdk.Stack {
     projectBuild.addToRolePolicy(
       new IAM.PolicyStatement({
         effect: IAM.Effect.ALLOW,
-        resources: [bucket.bucketArn, `${bucket.bucketArn}/*`],
+        resources: [staticWebsite._bucket.bucketArn, `${staticWebsite._bucket.bucketArn}/*`],
         actions: [
           's3:GetBucket*',
           's3:List*',

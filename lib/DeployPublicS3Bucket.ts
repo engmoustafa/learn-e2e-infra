@@ -2,13 +2,13 @@ import * as cdk from '@aws-cdk/core';
 import * as S3 from "@aws-cdk/aws-s3";
 import { Construct } from '@aws-cdk/core';
 import cloudfront = require('@aws-cdk/aws-cloudfront');
-import route53 = require('@aws-cdk/aws-route53');
 import s3deploy = require('@aws-cdk/aws-s3-deployment');
 import acm = require('@aws-cdk/aws-certificatemanager');
+import { DnsValidatedCertificate } from '@aws-cdk/aws-certificatemanager';
 import targets = require('@aws-cdk/aws-route53-targets/lib');
+import route53 = require('@aws-cdk/aws-route53');
 import { ARecord, HostedZone, IHostedZone } from '@aws-cdk/aws-route53';
 import { Bucket } from '@aws-cdk/aws-s3';
-import { DnsValidatedCertificate } from '@aws-cdk/aws-certificatemanager';
 import { CloudFrontWebDistribution, OriginAccessIdentity } from '@aws-cdk/aws-cloudfront';
 import { BucketDeployment, CacheControl } from '@aws-cdk/aws-s3-deployment';
 import { Source } from '@aws-cdk/aws-codebuild';
@@ -77,7 +77,11 @@ export class DeployStaticWebsite extends Construct{
         }
         //Requires Zone to be available
         if( props.enableSslCert === true) {
+            //Check if the certificate already exist for certain domain
+            
             const certificate = this.createCertificate(siteDomain, this._zone);
+            //Don't delete the cert
+            certificate.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
             this._certificateArn = certificate.certificateArn;
             new cdk.CfnOutput(this, 'Certificate', { value: this._certificateArn });
         } /* else {
